@@ -1,5 +1,3 @@
-import { promises as fs } from "fs"
-import path from "path"
 import { supabaseAdmin } from "./supabase"
 
 // ---------------------------------------------------------------------------
@@ -24,27 +22,12 @@ interface ImageRow {
   tags: string[] | null
 }
 
-/** deviceId → array of saved itemIds */
-export type SavesMap = Record<string, string[]>
-
 // ---------------------------------------------------------------------------
-// File paths (saves still on disk — only items moved to Supabase)
-// ---------------------------------------------------------------------------
-
-const DATA_DIR = path.join(process.cwd(), "data")
-const SAVES_FILE = path.join(DATA_DIR, "saves.json")
-
-// ---------------------------------------------------------------------------
-// Readers
+// Images
 // ---------------------------------------------------------------------------
 
 /**
  * Fetch all images from Supabase and map them to the shared `Item` shape.
- *
- * Column mapping:
- *   image_url → imageUrl
- *   category  → exposed as-is; also appended to tags for searchability
- *   is_pro    → appended as "pro" tag so existing gating logic is unchanged
  */
 export async function readItems(): Promise<Item[]> {
   const { data, error } = await supabaseAdmin
@@ -72,28 +55,36 @@ export async function readItems(): Promise<Item[]> {
   })
 }
 
-export async function readSaves(): Promise<SavesMap> {
-  try {
-    const raw = await fs.readFile(SAVES_FILE, "utf-8")
-    return JSON.parse(raw) as SavesMap
-  } catch {
-    // If the file is missing or malformed, return an empty map.
-    return {}
-  }
+// ---------------------------------------------------------------------------
+// Saves — stored in Supabase `saves` table (user_id, item_id)
+// ---------------------------------------------------------------------------
+
+export async function getSavesForUser(userId: string): Promise<string[]> {
+  const { data, error } = await supabaseAdmin
+    .from("saves")
+    .select("item_id")
+    .eq("user_id", userId)
+
+  if (error) throw new Error(`Failed to fetch saves: ${error.message}`)
+  return (data ?? []).map((row: { item_id: string }) => row.item_id)
 }
 
-// ---------------------------------------------------------------------------
-// Writer
-// ---------------------------------------------------------------------------
+export async function addSave(userId: string, itemId: string): Promise<string[]> {
+  const { error } = await supabaseAdmin
+    .from("saves")
+    .upsert({ user_id: userId, item_id: itemId }, { onConflict: "user_id,item_id" })
 
-/**
- * Atomically write the saves map back to disk.
- * Uses a tmp-file + rename strategy so that a crash mid-write never leaves
- * saves.json in a truncated state.
- */
-export async function writeSaves(saves: SavesMap): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true }) // create data/ if it doesn't exist
-  const tmp = SAVES_FILE + ".tmp"
-  await fs.writeFile(tmp, JSON.stringify(saves, null, 2), "utf-8")
-  await fs.rename(tmp, SAVES_FILE)
+  if (error) throw new Error(`Failed to save item: ${error.message}`)
+  return getSavesForUser(userId)
+}
+
+export async function removeSave(userId: string, itemId: string): Promise<string[]> {
+  const { error } = await supabaseAdmin
+    .from("saves")
+    .delete()
+    .eq("user_id", userId)
+    .eq("item_id", itemId)
+
+  if (error) throw new Error(`Failed to unsave item: ${error.message}`)
+  return getSavesForUser(userId)
 }

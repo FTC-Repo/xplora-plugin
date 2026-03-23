@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { readSaves, writeSaves } from "@/lib/db"
+import { addSave, removeSave } from "@/lib/db"
 import { corsHeaders } from "@/lib/cors"
 import { ok, err } from "@/lib/response"
 
@@ -11,9 +11,9 @@ function deviceIdFrom(req: NextRequest): string | null {
 }
 
 /**
- * POST /api/saves/[itemId]?deviceId=<id>
+ * POST /api/saves/[itemId]?deviceId=<userId>
  *
- * Idempotent add — does nothing if itemId is already saved.
+ * Idempotent add — upserts the save in Supabase.
  * Returns { ok: true, data: string[] } — the full updated list.
  */
 export async function POST(req: NextRequest, { params }: RouteContext) {
@@ -22,15 +22,8 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   if (!deviceId) return err("deviceId query param is required", 400)
 
   try {
-    const saves = await readSaves()
-    const current = saves[deviceId] ?? []
-
-    if (!current.includes(itemId)) {
-      saves[deviceId] = [...current, itemId]
-      await writeSaves(saves)
-    }
-
-    return ok(saves[deviceId])
+    const saves = await addSave(deviceId, itemId)
+    return ok(saves)
   } catch (e) {
     console.error("[POST /api/saves/:itemId]", e)
     return err("Failed to save item", 500)
@@ -38,9 +31,9 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 }
 
 /**
- * DELETE /api/saves/[itemId]?deviceId=<id>
+ * DELETE /api/saves/[itemId]?deviceId=<userId>
  *
- * Idempotent remove — no-ops if itemId is not in the list.
+ * Idempotent remove — deletes the save from Supabase.
  * Returns { ok: true, data: string[] } — the full updated list.
  */
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
@@ -49,11 +42,8 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
   if (!deviceId) return err("deviceId query param is required", 400)
 
   try {
-    const saves = await readSaves()
-    saves[deviceId] = (saves[deviceId] ?? []).filter((id) => id !== itemId)
-    await writeSaves(saves)
-
-    return ok(saves[deviceId])
+    const saves = await removeSave(deviceId, itemId)
+    return ok(saves)
   } catch (e) {
     console.error("[DELETE /api/saves/:itemId]", e)
     return err("Failed to unsave item", 500)

@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { readSaves } from "@/lib/db"
+import { getSavesForUser } from "@/lib/db"
 import { corsHeaders } from "@/lib/cors"
 import { ok, err } from "@/lib/response"
 
 /**
- * GET /api/saves?deviceId=<id>
+ * GET /api/saves?deviceId=<userId>
  *
- * Returns { ok: true, data: string[] } — the saved itemIds for the device.
+ * Returns { ok: true, data: string[] } — the saved itemIds for the user.
  */
 export async function GET(req: NextRequest) {
   const deviceId = req.nextUrl.searchParams.get("deviceId")?.trim()
@@ -16,8 +16,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const saves = await readSaves()
-    return ok(saves[deviceId] ?? [])
+    const saves = await getSavesForUser(deviceId)
+    return ok(saves)
   } catch (e) {
     console.error("[GET /api/saves]", e)
     return err("Failed to read saves", 500)
